@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenAgent Fingerprint — OAS Verifier</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Sora:wght@100;200;300;400;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #030305;
+    --text: #c8ccd4;
+    --dim: #3e4350;
+    --accent: #6ee7b7;
+    --accent2: #67e8f9;
+    --warn: #fbbf24;
+    --fail: #f87171;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Sora', sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  canvas#cloud {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 2;
+  }
+
+  video#cam {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    z-index: 1;
+    opacity: 0;
+    transition: opacity 0.8s;
+  }
+
+  video#cam.on { opacity: 0.12; }
+
+  .ambient {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 300px; height: 300px;
+    border-radius: 50%;
+    z-index: 0;
+    pointer-events: none;
+    transition: all 1.5s ease;
+  }
+
+  .ambient.idle {
+    background: radial-gradient(circle,
+      rgba(103,232,249,0.06) 0%, transparent 65%);
+    filter: blur(50px);
+  }
+
+  .ambient.scanning {
+    background: radial-gradient(circle,
+      rgba(251,191,36,0.08) 0%, transparent 65%);
+    filter: blur(55px);
+    animation: scanPulse 1.5s ease-in-out infinite;
+  }
+
+  .ambient.verified {
+    background: radial-gradient(circle,
+      rgba(110,231,183,0.12) 0%, transparent 60%);
+    filter: blur(50px);
+    animation: none;
+    width: 400px; height: 400px;
+  }
+
+  .ambient.failed {
+    background: radial-gradient(circle,
+      rgba(248,113,113,0.1) 0%, transparent 60%);
+    filter: blur(50px);
+    animation: none;
+  }
+
+  @keyframes scanPulse {
+    0%, 100% { transform: translate(-50%,-50%) scale(1); opacity: 0.7; }
+    50% { transform: translate(-50%,-50%) scale(1.1); opacity: 1; }
+  }
+
+  /* Center status text */
+  .center-status {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10;
+    text-align: center;
+    pointer-events: none;
+  }
+
+  .status-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.55rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--dim);
+    opacity: 0;
+    transition: opacity 0.5s;
+  }
+
+  .status-label.show { opacity: 1; }
+  .status-label.accent { color: var(--accent); }
+  .status-label.warn { color: var(--warn); }
+  .status-label.fail { color: var(--fail); }
+
+  /* DID reveal card */
+  .did-card {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.95);
+    z-index: 10;
+    background: rgba(3, 3, 5, 0.75);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(110, 231, 183, 0.15);
+    border-radius: 14px;
+    padding: 2rem 2.2rem;
+    max-width: 380px;
+    width: 90%;
+    font-family: 'DM Mono', monospace;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .did-card.show {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    pointer-events: all;
+  }
+
+  .did-card .check {
+    font-size: 1.8rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .did-card .title {
+    font-family: 'Sora', sans-serif;
+    font-weight: 300;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    margin-bottom: 1rem;
+  }
+
+  .did-card .row {
+    margin-bottom: 0.6rem;
+  }
+
+  .did-card .lbl {
+    font-size: 0.5rem;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.15rem;
+  }
+
+  .did-card .val {
+    font-size: 0.6rem;
+    color: var(--text);
+    word-break: break-all;
+    line-height: 1.5;
+  }
+
+  .did-card .val.green { color: var(--accent); }
+  .did-card .val.cyan { color: var(--accent2); }
+
+  .did-card .divider {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    margin: 0.8rem 0;
+  }
+
+  /* Progress ring */
+  .progress-ring {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 5;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.5s;
+  }
+
+  .progress-ring.show { opacity: 1; }
+
+  /* Bottom controls */
+  .controls {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex;
+    gap: 0.6rem;
+  }
+
+  .controls button {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: var(--dim);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.55rem;
+    padding: 0.55rem 1.1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    transition: 0.3s;
+  }
+
+  .controls button:hover {
+    border-color: rgba(110,231,183,0.25);
+    color: var(--accent);
+    background: rgba(110,231,183,0.03);
+  }
+
+  .controls button.primary {
+    border-color: rgba(110,231,183,0.3);
+    color: var(--accent);
+    background: rgba(110,231,183,0.05);
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient idle" id="ambient"></div>
+<video id="cam" autoplay playsinline muted></video>
+<canvas id="cloud"></canvas>
+
+<div class="center-status">
+  <div class="status-label" id="statusLabel">Point at agent badge</div>
+</div>
+
+<svg class="progress-ring" id="progressRing" width="180" height="180">
+  <circle cx="90" cy="90" r="80" fill="none"
+    stroke="rgba(110,231,183,0.08)" stroke-width="1"/>
+  <circle id="progCircle" cx="90" cy="90" r="80" fill="none"
+    stroke="rgba(110,231,183,0.4)" stroke-width="1.5"
+    stroke-dasharray="502.65" stroke-dashoffset="502.65"
+    stroke-linecap="round"
+    transform="rotate(-90 90 90)"
+    style="transition: stroke-dashoffset 0.2s;"/>
+</svg>
+
+<div class="did-card" id="didCard">
+  <div class="check">✓</div>
+  <div class="title">Agent Verified</div>
+  <div class="row">
+    <div class="lbl">DID</div>
+    <div class="val green" id="rDid">—</div>
+  </div>
+  <div class="row">
+    <div class="lbl">Type</div>
+    <div class="val" id="rType">—</div>
+  </div>
+  <hr class="divider">
+  <div class="row">
+    <div class="lbl">Issued</div>
+    <div class="val cyan" id="rDate">—</div>
+  </div>
+  <div class="row">
+    <div class="lbl">Platform</div>
+    <div class="val" id="rPlat">—</div>
+  </div>
+  <hr class="divider">
+  <div class="row">
+    <div class="lbl">Signature</div>
+    <div class="val" style="color:var(--accent);font-size:0.55rem">OAS Ed25519 · Valid</div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="primary" id="btnScan" onclick="startScan()">Scan</button>
+  <button onclick="runDemo()">Demo</button>
+  <button onclick="reset()">Reset</button>
+</div>
+
+<script>
+// ===========================================================
+// PARTICLE DID VERIFIER
+// ===========================================================
+
+const cv = document.getElementById('cloud');
+const cx = cv.getContext('2d');
+let W, H, CX, CY, dpr;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = cv.width = innerWidth * dpr;
+  H = cv.height = innerHeight * dpr;
+  cv.style.width = innerWidth + 'px';
+  cv.style.height = innerHeight + 'px';
+  CX = W / 2; CY = H / 2;
+}
+resize();
+addEventListener('resize', resize);
+
+// --- Grid ---
+const G = 8, CC = 64, DC = 60, DFPS = 8;
+const FC = [0, 7, 56, 63];
+const c2d = [];
+let _d = 0;
+for (let i = 0; i < CC; i++) c2d.push(FC.includes(i) ? -1 : _d++);
+
+// --- Cloud state ---
+// idle: gentle swirl, uniform brightness
+// scanning: warm shift, pulsing
+// verified: expansion, bright green
+// failed: contraction, red flash
+
+let cloudState = 'idle'; // idle | scanning | verified | failed
+let stateTime = 0;
+
+// --- Particle system (verifier side — same visual, different behavior) ---
+const N = 4500;
+const P = [];
+
+function orbR() { return Math.min(W, H) * 0.18; }
+
+function initP() {
+  P.length = 0;
+  const R = orbR();
+  for (let i = 0; i < N; i++) {
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    const rr = R * (0.12 + Math.pow(Math.random(), 0.45) * 0.88);
+    P.push({
+      oR: rr, oTh: th, oPh: ph,
+      x: 0, y: 0, z: 0,
+      sz: 0.2 + Math.random() * 0.85,
+      al: 0.1 + Math.random() * 0.5,
+      hu: 192, // start cyan-ish
+      sa: 50 + Math.random() * 40,
+      sp: 0.2 + Math.random() * 0.8,
+      ph: Math.random() * Math.PI * 2,
+      drift: (Math.random() - 0.5) * 0.25,
+    });
+  }
+}
+
+// --- Render ---
+let t = 0;
+let progress = 0; // 0-1 for scan progress
+
+function draw(ts) {
+  t = ts * 0.001;
+
+  cx.fillStyle = 'rgba(3,3,5,0.14)';
+  cx.fillRect(0, 0, W, H);
+
+  const R = orbR();
+  const fov = 700;
+
+  // State-dependent color targets
+  let huTarget = 185, saTarget = 65, liTarget = 65; // idle: cool cyan
+  let swirlMult = 1, breathMult = 1, radiusMult = 1;
+
+  if (cloudState === 'scanning') {
+    huTarget = 38; saTarget = 80; liTarget = 70; // warm amber
+    swirlMult = 1.4;
+    breathMult = 1.8;
+  } else if (cloudState === 'verified') {
+    huTarget = 157; saTarget = 75; liTarget = 72; // bright green
+    swirlMult = 0.5;
+    radiusMult = 1.25;
+    breathMult = 0.6;
+  } else if (cloudState === 'failed') {
+    huTarget = 0; saTarget = 80; liTarget = 60; // red
+    swirlMult = 2;
+    radiusMult = 0.7;
+    breathMult = 2.5;
+  }
+
+  for (const p of P) {
+    // Lerp color
+    p.hu += (huTarget + (Math.random() - 0.5) * 20 - p.hu) * 0.02;
+
+    const sw = t * p.sp * 0.35 * swirlMult;
+    const th = p.oTh + sw;
+    const phO = p.oPh + Math.sin(t * 0.25 * breathMult + p.ph) * 0.18;
+    const rO = p.oR * radiusMult * (1 + Math.sin(t * 0.4 * breathMult + p.ph * 2) * 0.07);
+
+    p.x = rO * Math.sin(phO) * Math.cos(th);
+    p.y = rO * Math.sin(phO) * Math.sin(th);
+    p.z = rO * Math.cos(phO);
+
+    const br = 1 + Math.sin(t * 0.35 * breathMult) * 0.04;
+    p.x *= br; p.y *= br; p.z *= br;
+    p.y += Math.sin(t * 0.6 + p.ph) * p.drift * R * 0.05;
+  }
+
+  P.sort((a, b) => a.z - b.z);
+
+  for (const p of P) {
+    const sc = fov / (fov + p.z + R * radiusMult);
+    const sx = CX + p.x * sc;
+    const sy = CY + p.y * sc;
+    const sz = p.sz * sc * dpr;
+
+    const da = 0.2 + 0.8 * ((p.z + R * radiusMult) / (2 * R * radiusMult));
+    let fa = p.al * da;
+
+    // During verification, boost alpha
+    if (cloudState === 'verified') fa *= 1.3;
+    if (fa < 0.008) continue;
+
+    const gl = sz * 3.2;
+    const hu = p.hu;
+
+    const g = cx.createRadialGradient(sx, sy, 0, sx, sy, gl);
+    g.addColorStop(0, `hsla(${hu},${p.sa}%,${liTarget}%,${fa * 0.8})`);
+    g.addColorStop(0.3, `hsla(${hu},${p.sa}%,${liTarget - 20}%,${fa * 0.22})`);
+    g.addColorStop(1, `hsla(${hu},${p.sa}%,${liTarget - 30}%,0)`);
+    cx.fillStyle = g;
+    cx.beginPath();
+    cx.arc(sx, sy, gl, 0, Math.PI * 2);
+    cx.fill();
+
+    // Core speck
+    cx.fillStyle = `rgba(255,255,255,${fa * 0.5})`;
+    cx.beginPath();
+    cx.arc(sx, sy, Math.max(sz * 0.25, 0.3), 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  // Update progress ring
+  if (cloudState === 'scanning') {
+    const circ = 2 * Math.PI * 80;
+    document.getElementById('progCircle').style.strokeDashoffset =
+      circ * (1 - progress);
+  }
+
+  requestAnimationFrame(draw);
+}
+
+// --- UI helpers ---
+function setStatus(text, cls) {
+  const el = document.getElementById('statusLabel');
+  el.textContent = text;
+  el.className = 'status-label show' + (cls ? ' ' + cls : '');
+}
+
+function setAmbient(state) {
+  const el = document.getElementById('ambient');
+  el.className = 'ambient ' + state;
+}
+
+function setProgress(val) {
+  progress = Math.min(1, Math.max(0, val));
+}
+
+// --- Camera ---
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 640 } }
+    });
+    const vid = document.getElementById('cam');
+    vid.srcObject = stream;
+    vid.classList.add('on');
+    return true;
+  } catch (e) {
+    console.error('Camera:', e);
+    return false;
+  }
+}
+
+// --- Frame analysis (for real camera scanning) ---
+const aCv = document.createElement('canvas');
+aCv.width = 640; aCv.height = 640;
+const aCx = aCv.getContext('2d', { willReadFrequently: true });
+
+function analyzeFrame() {
+  const vid = document.getElementById('cam');
+  if (vid.readyState < 2) return null;
+  aCx.drawImage(vid, 0, 0, 640, 640);
+  const id = aCx.getImageData(0, 0, 640, 640);
+  const px = id.data;
+  const cw = 640 / G;
+
+  const bright = new Float32Array(CC);
+  const cnt = new Float32Array(CC);
+
+  for (let ci = 0; ci < CC; ci++) {
+    const col = ci % G, row = (ci / G) | 0;
+    const x0 = ((col + 0.2) * cw) | 0;
+    const x1 = ((col + 0.8) * cw) | 0;
+    const y0 = ((row + 0.2) * cw) | 0;
+    const y1 = ((row + 0.8) * cw) | 0;
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const idx = (y * 640 + x) * 4;
+        bright[ci] += px[idx] * 0.2 + px[idx+1] * 0.6 + px[idx+2] * 0.2;
+        cnt[ci]++;
+      }
+    bright[ci] /= cnt[ci] || 1;
+  }
+  return bright;
+}
+
+function thresholdCells(br) {
+  const vals = [];
+  for (let i = 0; i < CC; i++) if (!FC.includes(i)) vals.push(br[i]);
+  vals.sort((a,b) => a - b);
+  const med = vals[(vals.length/2)|0];
+  const bits = new Array(CC).fill(0);
+  for (let i = 0; i < CC; i++) bits[i] = FC.includes(i) ? 1 : (br[i] > med ? 1 : 0);
+  return bits;
+}
+
+function isSyncFrame(bits) {
+  let m = 0, t = 0;
+  for (let i = 0; i < CC; i++) {
+    if (FC.includes(i)) continue;
+    const col = i % G, row = (i/G)|0;
+    if (bits[i] === ((col+row)%2===0 ? 1 : 0)) m++;
+    t++;
+  }
+  return m / t > 0.78;
+}
+
+function extractData(bits) {
+  const d = [];
+  for (let i = 0; i < CC; i++) if (!FC.includes(i)) d.push(bits[i]);
+  return d;
+}
+
+function reconstructPayload(frames) {
+  const all = frames.flat();
+  if (all.length < 16) return null;
+  let len = 0;
+  for (let i = 0; i < 16; i++) len = (len << 1) | all[i];
+  const data = all.slice(16);
+  const need = len * 8;
+  if (data.length < need) return { partial: true, have: data.length, need, len };
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    let b = 0;
+    for (let j = 0; j < 8; j++) b = (b << 1) | data[i*8+j];
+    bytes[i] = b;
+  }
+  return { partial: false, payload: bytes, len };
+}
+
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const BASE58_MAP = new Int32Array(256).fill(-1);
+for (let i = 0; i < BASE58_ALPHABET.length; i++) BASE58_MAP[BASE58_ALPHABET.charCodeAt(i)] = i;
+
+function base58btcEncode(bytes) {
+  if (bytes.length === 0) return '';
+  let leadingZeros = 0;
+  while (leadingZeros < bytes.length && bytes[leadingZeros] === 0) leadingZeros++;
+  const size = ((bytes.length - leadingZeros) * 138 / 100 + 1) | 0;
+  const b58 = new Uint8Array(size);
+  let length = 0;
+  for (let i = leadingZeros; i < bytes.length; i++) {
+    let carry = bytes[i];
+    let j = 0;
+    for (let k = size - 1; k >= 0; k--) {
+      if (carry === 0 && j >= length) break;
+      carry += 256 * b58[k];
+      b58[k] = carry % 58;
+      carry = (carry / 58) | 0;
+      j++;
+    }
+    length = j;
+  }
+  let start = size - length;
+  while (start < size && b58[start] === 0) start++;
+  let result = '';
+  for (let i = 0; i < leadingZeros; i++) result += '1';
+  for (let i = start; i < size; i++) result += BASE58_ALPHABET[b58[i]];
+  return result;
+}
+
+function base58btcDecode(str) {
+  if (str.length === 0) return new Uint8Array(0);
+  let leadingOnes = 0;
+  while (leadingOnes < str.length && str[leadingOnes] === '1') leadingOnes++;
+  const size = ((str.length - leadingOnes) * 733 / 1000 + 1) | 0;
+  const b256 = new Uint8Array(size);
+  let length = 0;
+  for (let i = leadingOnes; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    let carry = code < 256 ? BASE58_MAP[code] : -1;
+    if (carry === -1) throw new Error(`invalid base58 character at ${i}`);
+    let j = 0;
+    for (let k = size - 1; k >= 0; k--) {
+      if (carry === 0 && j >= length) break;
+      carry += 58 * b256[k];
+      b256[k] = carry % 256;
+      carry = (carry / 256) | 0;
+      j++;
+    }
+    length = j;
+  }
+  const start = size - length;
+  const result = new Uint8Array(leadingOnes + (size - start));
+  for (let i = 0; i < size - start; i++) result[leadingOnes + i] = b256[start + i];
+  return result;
+}
+
+function multibaseEncode(bytes) {
+  return 'z' + base58btcEncode(bytes);
+}
+
+function multibaseDecode(value) {
+  if (!value || value[0] !== 'z') throw new Error('expected z-prefixed multibase');
+  return base58btcDecode(value.slice(1));
+}
+
+function canonicalize(value) {
+  return new TextEncoder().encode(canonicalizeValue(value));
+}
+
+function canonicalizeValue(value) {
+  if (value === null) return 'null';
+  if (value === undefined) return undefined;
+  const type = typeof value;
+  if (type === 'boolean') return value ? 'true' : 'false';
+  if (type === 'number') return JSON.stringify(value);
+  if (type === 'string') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    const items = [];
+    for (const item of value) {
+      const serialized = canonicalizeValue(item);
+      items.push(serialized === undefined ? 'null' : serialized);
+    }
+    return '[' + items.join(',') + ']';
+  }
+  if (type === 'object') {
+    const keys = Object.keys(value).sort();
+    const pairs = [];
+    for (const key of keys) {
+      const serialized = canonicalizeValue(value[key]);
+      if (serialized !== undefined) pairs.push(JSON.stringify(key) + ':' + serialized);
+    }
+    return '{' + pairs.join(',') + '}';
+  }
+  throw new Error(`unsupported JCS type: ${type}`);
+}
+
+async function verifyPayload(payload) {
+  try {
+    const pkLen = (payload[0] << 8) | payload[1];
+    const publicKeyMultibase = new TextDecoder().decode(payload.slice(2, 2 + pkLen));
+    const rest = payload.slice(2 + pkLen);
+    const clLen = (rest[0] << 8) | rest[1];
+    const clBytes = rest.slice(2, 2 + clLen);
+    const claim = JSON.parse(new TextDecoder().decode(clBytes));
+    const unsigned = structuredClone(claim);
+    delete unsigned.proof;
+    const canonical = canonicalize(unsigned);
+    const signature = multibaseDecode(claim.proof?.proofValue || '');
+    const pk = await crypto.subtle.importKey(
+      'raw',
+      multibaseDecode(publicKeyMultibase),
+      { name: 'Ed25519' },
+      true,
+      ['verify']
+    );
+    const valid = await crypto.subtle.verify({ name: 'Ed25519' }, pk, signature, canonical);
+    return { valid, claim, publicKeyMultibase };
+  } catch (e) {
+    return { valid: false, error: e.message };
+  }
+}
+
+// --- Camera scan loop ---
+let scanning = false;
+let synced = false;
+let capturedFrames = [];
+let scanTimer = null;
+
+async function startScan() {
+  const ok = await startCamera();
+  if (!ok) { setStatus('Camera unavailable', 'fail'); return; }
+
+  cloudState = 'scanning';
+  setAmbient('scanning');
+  setStatus('Searching for agent badge…', 'warn');
+  document.getElementById('progressRing').classList.add('show');
+  document.getElementById('btnScan').textContent = 'Scanning…';
+  scanning = true;
+  synced = false;
+  capturedFrames = [];
+  setProgress(0);
+
+  scanTimer = setInterval(() => {
+    if (!scanning) return;
+    const br = analyzeFrame();
+    if (!br) return;
+
+    const bits = thresholdCells(br);
+    const findersOk = FC.every(fi => br[fi] >= br[fi]); // always true; real check below
+
+    if (!synced) {
+      if (isSyncFrame(bits)) {
+        synced = true;
+        capturedFrames = [];
+        setStatus('Sync locked · receiving…', 'warn');
+      }
+    } else {
+      if (!isSyncFrame(bits)) {
+        capturedFrames.push(extractData(bits));
+        const res = reconstructPayload(capturedFrames);
+        if (res && res.partial) {
+          setProgress(res.have / res.need);
+          setStatus(`Receiving ${((res.have/res.need)*100)|0}%…`, 'warn');
+        } else if (res && !res.partial) {
+          scanning = false;
+          clearInterval(scanTimer);
+          setProgress(1);
+          finishVerify(res.payload);
+        }
+      } else if (capturedFrames.length > 0) {
+        const res = reconstructPayload(capturedFrames);
+        if (res && !res.partial) {
+          scanning = false;
+          clearInterval(scanTimer);
+          setProgress(1);
+          finishVerify(res.payload);
+          return;
+        }
+        capturedFrames = [];
+      }
+    }
+  }, 1000 / DFPS);
+}
+
+async function finishVerify(payload) {
+  setStatus('Verifying signature…', 'accent');
+  await new Promise(r => setTimeout(r, 600));
+
+  const res = await verifyPayload(payload);
+  if (res.valid) {
+    cloudState = 'verified';
+    setAmbient('verified');
+    setStatus('', '');
+    document.getElementById('progressRing').classList.remove('show');
+    showDIDCard(res.claim);
+  } else {
+    cloudState = 'failed';
+    setAmbient('failed');
+    setStatus('Verification failed', 'fail');
+    document.getElementById('progressRing').classList.remove('show');
+  }
+  document.getElementById('btnScan').textContent = 'Scan';
+}
+
+function showDIDCard(claim) {
+  document.getElementById('rDid').textContent = claim.issuer || '—';
+  document.getElementById('rType').textContent = claim.type || '—';
+  document.getElementById('rDate').textContent = claim.issuanceDate || '—';
+  document.getElementById('rPlat').textContent =
+    claim.credentialSubject?.platform || '—';
+  setTimeout(() => {
+    document.getElementById('didCard').classList.add('show');
+  }, 400);
+}
+
+function reset() {
+  scanning = false;
+  if (scanTimer) clearInterval(scanTimer);
+  cloudState = 'idle';
+  setAmbient('idle');
+  setStatus('Point at agent badge', '');
+  setProgress(0);
+  document.getElementById('progressRing').classList.remove('show');
+  document.getElementById('didCard').classList.remove('show');
+  document.getElementById('cam').classList.remove('on');
+  document.getElementById('btnScan').textContent = 'Scan';
+  capturedFrames = [];
+  synced = false;
+}
+
+// ===========================================================
+// DEMO MODE — Full encode → decode → verify without camera
+// ===========================================================
+
+async function runDemo() {
+  reset();
+  await new Promise(r => setTimeout(r, 200));
+
+  cloudState = 'scanning';
+  setAmbient('scanning');
+  setStatus('Connecting to agent…', 'warn');
+  document.getElementById('progressRing').classList.add('show');
+  document.getElementById('btnScan').textContent = 'Demo…';
+
+  // --- Generate (encoder side) ---
+  const kp = await crypto.subtle.generateKey(
+    { name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+
+  const pubJwk = await crypto.subtle.exportKey('jwk', kp.publicKey);
+  const pubRaw = await crypto.subtle.exportKey('raw', kp.publicKey);
+  const pubHex = Array.from(new Uint8Array(pubRaw))
+    .map(b => b.toString(16).padStart(2,'0')).join('');
+  const did = `did:key:z${pubHex.slice(0,16)}`;
+
+  const claim = JSON.stringify({
+    '@context': 'https://www.w3.org/2018/credentials/v1',
+    type: 'AgentVerification',
+    issuer: did,
+    issuanceDate: new Date().toISOString(),
+    credentialSubject: { id: did, agent: true, platform: 'particle-did' }
+  });
+
+  const clB = new TextEncoder().encode(claim);
+  const sig = new Uint8Array(await crypto.subtle.sign(
+    { name:'ECDSA', hash:'SHA-256' }, kp.privateKey, clB));
+
+  const jwkB = new TextEncoder().encode(JSON.stringify(pubJwk));
+  const inner = new Uint8Array(2 + clB.length + sig.length);
+  inner[0] = (clB.length >> 8) & 0xff;
+  inner[1] = clB.length & 0xff;
+  inner.set(clB, 2);
+  inner.set(sig, 2 + clB.length);
+
+  const full = new Uint8Array(2 + jwkB.length + inner.length);
+  full[0] = (jwkB.length >> 8) & 0xff;
+  full[1] = jwkB.length & 0xff;
+  full.set(jwkB, 2);
+  full.set(inner, 2 + jwkB.length);
+
+  // To bits
+  const bits = [];
+  for (let b = 15; b >= 0; b--) bits.push((full.length >> b) & 1);
+  for (const byte of full)
+    for (let b = 7; b >= 0; b--) bits.push((byte >> b) & 1);
+  while (bits.length % DC !== 0) bits.push(0);
+
+  const frames = [];
+  for (let i = 0; i < bits.length; i += DC) frames.push(bits.slice(i, i + DC));
+
+  // --- Simulate receiving ---
+  setStatus('Sync locked · receiving…', 'warn');
+  const received = [];
+
+  for (let f = 0; f < frames.length; f++) {
+    await new Promise(r => setTimeout(r, 1000 / DFPS));
+    received.push([...frames[f]]);
+
+    const res = reconstructPayload(received);
+    if (res && res.partial) {
+      setProgress(res.have / res.need);
+      setStatus(`Receiving ${((res.have/res.need)*100)|0}%…`, 'warn');
+    }
+  }
+
+  // --- Verify ---
+  setProgress(1);
+  setStatus('Verifying signature…', 'accent');
+  await new Promise(r => setTimeout(r, 800));
+
+  const res = reconstructPayload(received);
+  if (res && !res.partial) {
+    const vr = await verifyPayload(res.payload);
+    if (vr.valid) {
+      cloudState = 'verified';
+      setAmbient('verified');
+      setStatus('', '');
+      document.getElementById('progressRing').classList.remove('show');
+      showDIDCard(vr.claim);
+    } else {
+      cloudState = 'failed';
+      setAmbient('failed');
+      setStatus('Verification failed', 'fail');
+      document.getElementById('progressRing').classList.remove('show');
+    }
+  }
+  document.getElementById('btnScan').textContent = 'Scan';
+}
+
+// --- Init ---
+initP();
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

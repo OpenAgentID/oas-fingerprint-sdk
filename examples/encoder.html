@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenAgent Fingerprint — OAS Encoder</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Sora:wght@100;200;300;400;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #030305;
+    --text: #c8ccd4;
+    --dim: #484d58;
+    --accent: #6ee7b7;
+    --accent2: #67e8f9;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Sora', sans-serif;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  canvas#dust {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .ambient {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 340px; height: 340px;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+      rgba(110,231,183,0.07) 0%,
+      rgba(103,232,249,0.04) 40%,
+      transparent 70%);
+    filter: blur(60px);
+    pointer-events: none;
+    animation: breathe 6s ease-in-out infinite;
+  }
+
+  @keyframes breathe {
+    0%, 100% { transform: translate(-50%,-50%) scale(1); opacity: 0.5; }
+    50% { transform: translate(-50%,-50%) scale(1.18); opacity: 0.85; }
+  }
+
+  .hud {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    padding: 1.5rem 2rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.55rem;
+    color: var(--dim);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    letter-spacing: 0.06em;
+    pointer-events: none;
+    opacity: 0;
+    animation: fadeIn 2s 1s forwards;
+  }
+
+  @keyframes fadeIn { to { opacity: 1; } }
+
+  .hud .a { color: var(--accent); opacity: 0.7; }
+  .hud .b { color: var(--accent2); opacity: 0.6; }
+
+  .hud .dot {
+    display: inline-block;
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-right: 6px;
+    animation: pulse 2.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.9; }
+    50% { opacity: 0.15; }
+  }
+
+  .dbg {
+    position: fixed;
+    top: 1rem; right: 1rem;
+    z-index: 10;
+  }
+
+  .dbg button {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.05);
+    color: var(--dim);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.5rem;
+    padding: 0.3rem 0.55rem;
+    border-radius: 3px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    transition: 0.3s;
+  }
+
+  .dbg button:hover, .dbg button.on {
+    border-color: rgba(110,231,183,0.25);
+    color: var(--accent);
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient"></div>
+<canvas id="dust"></canvas>
+
+<div class="hud">
+  <div>
+    <div><span class="dot"></span>Broadcasting</div>
+    <div class="a" id="hDid">—</div>
+  </div>
+  <div style="text-align:right">
+    <div id="hFrame">—</div>
+    <div class="b" id="hMeta">—</div>
+  </div>
+</div>
+
+<div class="dbg">
+  <button id="btnG" onclick="dbg=!dbg;this.classList.toggle('on')">grid</button>
+</div>
+
+<script>
+// ===========================================================
+// OPENAGENT FINGERPRINT ENCODER — OAS Dust Cloud
+// ===========================================================
+
+const c = document.getElementById('dust');
+const x = c.getContext('2d');
+let W, H, CX, CY, dpr;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = c.width = innerWidth * dpr;
+  H = c.height = innerHeight * dpr;
+  c.style.width = innerWidth + 'px';
+  c.style.height = innerHeight + 'px';
+  CX = W / 2; CY = H / 2;
+}
+resize();
+addEventListener('resize', resize);
+
+// --- Grid ---
+const G = 8, CC = 64, DC = 60, DFPS = 8;
+const FC = [0, 7, 56, 63];
+const c2d = [];
+let _d = 0;
+for (let i = 0; i < CC; i++) c2d.push(FC.includes(i) ? -1 : _d++);
+
+// --- Particles ---
+const N = 5000;
+const P = [];
+
+function orbR() { return Math.min(W, H) * 0.21; }
+
+function initP() {
+  P.length = 0;
+  const R = orbR();
+  for (let i = 0; i < N; i++) {
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    // Bias toward surface for more visible shell
+    const rr = R * (0.15 + Math.pow(Math.random(), 0.5) * 0.85);
+    P.push({
+      oR: rr, oTh: th, oPh: ph,
+      x: 0, y: 0, z: 0,
+      sz: 0.2 + Math.random() * 0.9,
+      al: 0.1 + Math.random() * 0.55,
+      hu: 152 + Math.random() * 44,
+      sa: 45 + Math.random() * 45,
+      sp: 0.2 + Math.random() * 0.9,
+      ph: Math.random() * Math.PI * 2,
+      drift: (Math.random() - 0.5) * 0.3,
+    });
+  }
+}
+
+// --- Cell state ---
+const cs = new Float32Array(CC).fill(1);
+const ss = new Float32Array(CC).fill(1);
+
+function cellFor(px, py) {
+  const R = orbR();
+  const col = Math.floor(((px / R + 1) / 2) * G);
+  const row = Math.floor(((py / R + 1) / 2) * G);
+  if (col < 0 || col >= G || row < 0 || row >= G) return -1;
+  return row * G + col;
+}
+
+// --- OAS helpers ---
+const VC_CONTEXT = 'https://www.w3.org/2018/credentials/v1';
+const OAS_ATTESTATION_CONTEXT = 'https://openagent.id/ns/attestation/v1';
+const OAS_NAMESPACE = 'l1fe';
+const OAS_KIND = 'agent';
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const BASE58_MAP = new Int32Array(256).fill(-1);
+for (let i = 0; i < BASE58_ALPHABET.length; i++) BASE58_MAP[BASE58_ALPHABET.charCodeAt(i)] = i;
+
+function base58btcEncode(bytes) {
+  if (bytes.length === 0) return '';
+  let leadingZeros = 0;
+  while (leadingZeros < bytes.length && bytes[leadingZeros] === 0) leadingZeros++;
+  const size = ((bytes.length - leadingZeros) * 138 / 100 + 1) | 0;
+  const b58 = new Uint8Array(size);
+  let length = 0;
+  for (let i = leadingZeros; i < bytes.length; i++) {
+    let carry = bytes[i];
+    let j = 0;
+    for (let k = size - 1; k >= 0; k--) {
+      if (carry === 0 && j >= length) break;
+      carry += 256 * b58[k];
+      b58[k] = carry % 58;
+      carry = (carry / 58) | 0;
+      j++;
+    }
+    length = j;
+  }
+  let start = size - length;
+  while (start < size && b58[start] === 0) start++;
+  let result = '';
+  for (let i = 0; i < leadingZeros; i++) result += '1';
+  for (let i = start; i < size; i++) result += BASE58_ALPHABET[b58[i]];
+  return result;
+}
+
+function multibaseEncode(bytes) {
+  return 'z' + base58btcEncode(bytes);
+}
+
+function canonicalize(value) {
+  return new TextEncoder().encode(canonicalizeValue(value));
+}
+
+function canonicalizeValue(value) {
+  if (value === null) return 'null';
+  if (value === undefined) return undefined;
+  const type = typeof value;
+  if (type === 'boolean') return value ? 'true' : 'false';
+  if (type === 'number') return JSON.stringify(value);
+  if (type === 'string') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    const items = [];
+    for (const item of value) {
+      const serialized = canonicalizeValue(item);
+      items.push(serialized === undefined ? 'null' : serialized);
+    }
+    return '[' + items.join(',') + ']';
+  }
+  if (type === 'object') {
+    const keys = Object.keys(value).sort();
+    const pairs = [];
+    for (const key of keys) {
+      const serialized = canonicalizeValue(value[key]);
+      if (serialized !== undefined) pairs.push(JSON.stringify(key) + ':' + serialized);
+    }
+    return '{' + pairs.join(',') + '}';
+  }
+  throw new Error(`Unsupported JCS type: ${type}`);
+}
+
+// --- Crypto ---
+let fb = [], cdf = 0, tdf = 0, sync = true, did = '';
+
+async function genDID() {
+  const kp = await crypto.subtle.generateKey(
+    { name: 'Ed25519' }, true, ['sign', 'verify']);
+
+  const publicKeyBytes = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+  const publicKeyMultibase = multibaseEncode(publicKeyBytes);
+  did = `did:oas:${OAS_NAMESPACE}:${OAS_KIND}:${publicKeyMultibase}`;
+
+  const unsignedClaim = {
+    '@context': [VC_CONTEXT, OAS_ATTESTATION_CONTEXT],
+    id: `urn:uuid:${crypto.randomUUID()}`,
+    type: ['VerifiableCredential', 'ConformanceAttestation'],
+    issuer: did,
+    issuanceDate: new Date().toISOString(),
+    credentialSubject: {
+      id: did,
+      kind: OAS_KIND,
+      agent: true,
+      platform: 'oas-fingerprint-demo',
+      verificationMethod: {
+        id: `${did}#key-1`,
+        type: 'Ed25519VerificationKey2020',
+        controller: did,
+        publicKeyMultibase,
+      },
+    },
+  };
+
+  const canonical = canonicalize(unsignedClaim);
+  const sig = new Uint8Array(await crypto.subtle.sign(
+    { name: 'Ed25519' }, kp.privateKey, canonical));
+
+  const signedClaim = {
+    ...unsignedClaim,
+    proof: {
+      type: 'Ed25519Signature2020',
+      created: new Date().toISOString(),
+      verificationMethod: `${did}#key-1`,
+      proofPurpose: 'assertionMethod',
+      proofValue: multibaseEncode(sig),
+    },
+  };
+
+  const claimBytes = new TextEncoder().encode(JSON.stringify(signedClaim));
+  const publicKeyBytesUtf8 = new TextEncoder().encode(publicKeyMultibase);
+
+  const full = new Uint8Array(2 + publicKeyBytesUtf8.length + 2 + claimBytes.length);
+  full[0] = (publicKeyBytesUtf8.length >> 8) & 0xff;
+  full[1] = publicKeyBytesUtf8.length & 0xff;
+  full.set(publicKeyBytesUtf8, 2);
+  full[2 + publicKeyBytesUtf8.length] = (claimBytes.length >> 8) & 0xff;
+  full[3 + publicKeyBytesUtf8.length] = claimBytes.length & 0xff;
+  full.set(claimBytes, 4 + publicKeyBytesUtf8.length);
+
+  const bits = [];
+  // 16-bit length header
+  for (let b = 15; b >= 0; b--) bits.push((full.length >> b) & 1);
+  for (const byte of full)
+    for (let b = 7; b >= 0; b--) bits.push((byte >> b) & 1);
+  while (bits.length % DC !== 0) bits.push(0);
+
+  fb = [];
+  for (let i = 0; i < bits.length; i += DC) fb.push(bits.slice(i, i + DC));
+  tdf = fb.length;
+
+  document.getElementById('hDid').textContent = did;
+  document.getElementById('hMeta').textContent =
+    `${full.length}B · ${tdf+1}f · ${((tdf+1)/DFPS).toFixed(1)}s`;
+}
+
+// --- Sequencer ---
+let ldt = 0;
+
+function seqFrame(t) {
+  if (!fb.length) return;
+  if (t - ldt < 1000 / DFPS) return;
+  ldt = t;
+
+  if (sync) {
+    for (let i = 0; i < CC; i++) {
+      if (FC.includes(i)) { cs[i] = 1; continue; }
+      const col = i % G, row = (i / G) | 0;
+      cs[i] = (col + row) % 2 === 0 ? 1 : 0;
+    }
+    sync = false; cdf = 0;
+    document.getElementById('hFrame').textContent = 'SYNC';
+  } else {
+    const bits = fb[cdf];
+    for (let i = 0; i < CC; i++) {
+      cs[i] = FC.includes(i) ? 1 : bits[c2d[i]];
+    }
+    document.getElementById('hFrame').textContent = `${cdf+1}/${tdf}`;
+    if (++cdf >= tdf) sync = true;
+  }
+}
+
+// --- Render ---
+let dbg = false, t = 0;
+
+function draw(ts) {
+  t = ts * 0.001;
+  seqFrame(ts);
+
+  // Smooth
+  for (let i = 0; i < CC; i++) ss[i] += (cs[i] - ss[i]) * 0.13;
+
+  // Fade
+  x.fillStyle = 'rgba(3,3,5,0.15)';
+  x.fillRect(0, 0, W, H);
+
+  const R = orbR();
+  const fov = 700;
+
+  // Update positions
+  for (const p of P) {
+    const sw = t * p.sp * 0.35;
+    const th = p.oTh + sw;
+    const phO = p.oPh + Math.sin(t * 0.25 + p.ph) * 0.18;
+    const rO = p.oR * (1 + Math.sin(t * 0.4 + p.ph * 2) * 0.07);
+
+    p.x = rO * Math.sin(phO) * Math.cos(th);
+    p.y = rO * Math.sin(phO) * Math.sin(th);
+    p.z = rO * Math.cos(phO);
+
+    // Breathe
+    const br = 1 + Math.sin(t * 0.35) * 0.04;
+    p.x *= br; p.y *= br; p.z *= br;
+
+    // Vertical drift
+    p.y += Math.sin(t * 0.6 + p.ph) * p.drift * R * 0.05;
+  }
+
+  // Sort depth
+  P.sort((a, b) => a.z - b.z);
+
+  for (const p of P) {
+    const ci = cellFor(p.x, p.y);
+    let dm = 1;
+    if (ci >= 0 && ci < CC) dm = 0.04 + ss[ci] * 0.96;
+
+    const sc = fov / (fov + p.z + R);
+    const sx = CX + p.x * sc;
+    const sy = CY + p.y * sc;
+    const sz = p.sz * sc * dpr;
+
+    const da = 0.25 + 0.75 * ((p.z + R) / (2 * R));
+    const fa = p.al * dm * da;
+    if (fa < 0.008) continue;
+
+    const gl = sz * (1.2 + dm * 2.8);
+    const hu = p.hu + Math.sin(t * 0.7 + p.ph) * 6;
+
+    // Soft glow
+    const g = x.createRadialGradient(sx, sy, 0, sx, sy, gl);
+    g.addColorStop(0, `hsla(${hu},${p.sa}%,78%,${fa * 0.85})`);
+    g.addColorStop(0.35, `hsla(${hu},${p.sa}%,55%,${fa * 0.25})`);
+    g.addColorStop(1, `hsla(${hu},${p.sa}%,35%,0)`);
+    x.fillStyle = g;
+    x.beginPath();
+    x.arc(sx, sy, gl, 0, Math.PI * 2);
+    x.fill();
+
+    // Core speck
+    if (dm > 0.25) {
+      x.fillStyle = `rgba(255,255,255,${fa * 0.55})`;
+      x.beginPath();
+      x.arc(sx, sy, Math.max(sz * 0.3, 0.4), 0, Math.PI * 2);
+      x.fill();
+    }
+  }
+
+  if (dbg) drawDbg(R, fov);
+  requestAnimationFrame(draw);
+}
+
+function drawDbg(R, fov) {
+  const sc = fov / (fov + R);
+  const gp = R * 2 * sc;
+  const sx = CX - R * sc, sy = CY - R * sc;
+  const cw = gp / G;
+
+  x.strokeStyle = 'rgba(110,231,183,0.1)';
+  x.lineWidth = 0.5 * dpr;
+  for (let i = 0; i <= G; i++) {
+    x.beginPath(); x.moveTo(sx + i*cw, sy); x.lineTo(sx + i*cw, sy + gp); x.stroke();
+    x.beginPath(); x.moveTo(sx, sy + i*cw); x.lineTo(sx + gp, sy + i*cw); x.stroke();
+  }
+
+  x.font = `${cw*0.28}px DM Mono`;
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  for (let i = 0; i < CC; i++) {
+    const col = i % G, row = (i/G)|0;
+    const cx = sx + (col+0.5)*cw, cy = sy + (row+0.5)*cw;
+    if (FC.includes(i)) {
+      x.fillStyle = 'rgba(255,255,255,0.4)';
+      x.fillText('F', cx, cy);
+    } else {
+      x.fillStyle = cs[i] > 0.5
+        ? 'rgba(110,231,183,0.45)'
+        : 'rgba(255,70,87,0.25)';
+      x.fillText(cs[i] > 0.5 ? '1' : '0', cx, cy);
+    }
+  }
+}
+
+// --- Init ---
+async function init() {
+  initP();
+  await genDID();
+  requestAnimationFrame(draw);
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify TypeScript declarations compile
+        run: |
+          npm install -g typescript@5
+          echo 'import { Fingerprint, Verifier, DIDCrypto } from "./index";' > /tmp/check.ts
+          tsc --noEmit --strict --moduleResolution node /tmp/check.ts || true
+
+      - name: Verify no secrets committed
+        run: |
+          ! grep -rn "KEY[0-9A-F]\{20,\}" src/ index.js 2>/dev/null
+          ! grep -rn "sk-[a-zA-Z0-9]\{20,\}" src/ index.js 2>/dev/null

@@ -1,0 +1,41 @@
+{
+  "name": "oas-fingerprint-sdk",
+  "version": "0.1.0",
+  "description": "OpenAgent Fingerprint — Particle-based DID identity for autonomous agents. Encode credentials into animated dust clouds. Verify by scanning.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "test": "node test/test-all.js",
+    "test:rs": "node test/test-reed-solomon.js",
+    "test:protocol": "node test/test-protocol.js",
+    "test:crypto": "node test/test-crypto.js",
+    "test:challenge": "node test/test-challenge.js"
+  },
+  "keywords": [
+    "did",
+    "decentralized-identity",
+    "agent",
+    "autonomous",
+    "fingerprint",
+    "particle",
+    "qr-alternative",
+    "visual-verification",
+    "reed-solomon",
+    "openagent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OpenAgentID/oas-fingerprint-sdk"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "index.js",
+    "src/**/*.js",
+    "docs/**/*.md",
+    "README.md"
+  ]
+}
