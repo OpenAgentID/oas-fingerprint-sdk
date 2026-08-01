@@ -60,7 +60,8 @@ class Fingerprint {
     this.keyPair = await DIDCrypto.importKeyPair(privateJwk, publicJwk);
     this.did = did;
     this.publicKeyJwk = publicJwk;
-    const pubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', this.keyPair.publicKey));
+    const _crypto = (globalThis.crypto && globalThis.crypto.subtle) ? globalThis.crypto : require('crypto').webcrypto;
+    const pubRaw = new Uint8Array(await _crypto.subtle.exportKey('raw', this.keyPair.publicKey));
     this.publicKeyHex = bytesToHex(pubRaw);
     this.publicKeyMultibase = multibaseEncode(pubRaw);
     await this._buildPayload(opts);
