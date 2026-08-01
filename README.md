@@ -265,3 +265,13 @@ oas-fingerprint-sdk/
 - `oas-voice`: acoustic identity and challenge transport for `did:oas`
 
 All of these lower-level libraries should present the same OAS identity, not alternate identity systems.
+
+## Contributing and Security
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development and pull-request
+guidance. Report vulnerabilities privately according to
+[SECURITY.md](./SECURITY.md).
+
+## License
+
+Licensed under the [MIT License](./LICENSE).
