@@ -19,7 +19,7 @@ The animation, dust-cloud behavior, palette, and rendering effects remain the sa
 ## Install
 
 ```bash
-npm install oas-fingerprint-sdk
+npm install github:OpenAgentID/oas-fingerprint-sdk
 ```
 
 ## Quick Start
